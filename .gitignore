@@ -1,0 +1,8 @@
+/build/
+/result
+/result-*
+/.env
+/erl_crash.dump
+__pycache__/
+.envrc
+.direnv/
