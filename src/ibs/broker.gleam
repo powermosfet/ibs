@@ -8,6 +8,7 @@ import gleam/time/duration
 import ibs/amqp_returns
 import ibs/config.{type Config}
 import ibs/lookup
+import ibs/pms
 import ibs/runtime
 
 pub type Failure {
@@ -186,6 +187,10 @@ fn consume(session: Session, config: Config) -> Result(Nil, Failure) {
         config,
         config.retry_initial_ms,
       ))
+      use _ <- result.try(case outcome {
+        lookup.Found(_) -> Ok(Nil)
+        lookup.Missing(_) -> notify(session, config, config.retry_initial_ms)
+      })
       use _ <- result.try(publish(session.output, config, outcome))
       use _ <- result.try(
         carotte.ack_single(session.input, delivery.delivery_tag)
@@ -228,6 +233,26 @@ fn resolve(
             lookup.next_delay(delay, config.retry_max_ms),
           )
         False -> Error(Retry("connection or input channel lost during lookup"))
+      }
+    }
+  }
+}
+
+fn notify(
+  session: Session,
+  config: Config,
+  delay: Int,
+) -> Result(Nil, Failure) {
+  case pms.send(config) {
+    Ok(_) -> Ok(Nil)
+    Error(message) -> {
+      io.println_error("Notification retry: " <> message)
+      process.sleep(delay)
+      case healthy(session, config) {
+        True ->
+          notify(session, config, lookup.next_delay(delay, config.retry_max_ms))
+        False ->
+          Error(Retry("connection or input channel lost during notification"))
       }
     }
   }

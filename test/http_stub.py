@@ -7,6 +7,7 @@ from urllib.parse import unquote, urlsplit
 
 state = {}
 requests = []
+memos = []
 lock = threading.Lock()
 
 
@@ -28,10 +29,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with lock:
-            state.update(data)
-        self.reply(200, "{}")
+            if self.path == "/memo":
+                memos.append(data)
+                control = dict(state.get("pms", {}))
+            else:
+                state.update(data)
+                control = {}
+        self.reply(control.get("status", 200), "{}")
 
     def do_GET(self):
+        if self.path == "/memos":
+            with lock:
+                body = json.dumps(memos)
+            self.reply(200, body)
+            return
         if self.path == "/requests":
             with lock:
                 body = json.dumps(requests)

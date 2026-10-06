@@ -18,6 +18,9 @@ pub type Config {
     shopping_queue: String,
     missing_queue: String,
     lookup_template: String,
+    pms_host: String,
+    pms_port: Int,
+    bpd_url: String,
     http_timeout_ms: Int,
     connection_timeout_ms: Int,
     heartbeat_seconds: Int,
@@ -53,6 +56,13 @@ pub fn from_env(
     get("PRODUCT_LOOKUP_URL_TEMPLATE")
     |> result.map_error(fn(_) { "PRODUCT_LOOKUP_URL_TEMPLATE is required" }),
   )
+  use pms_host <- result.try(text(get, "PMS_HOST", "localhost"))
+  use pms_port <- result.try(number(get, "PMS_PORT", 8081))
+  use bpd_url <- result.try(
+    get("BPD_URL") |> result.map_error(fn(_) { "BPD_URL is required" }),
+  )
+  use _ <- result.try(validate_url(bpd_url, "BPD_URL"))
+  use _ <- result.try(validate_pms_host(pms_host))
   use timeout <- result.try(number(get, "HTTP_TIMEOUT_MS", 5000))
   use connection_timeout <- result.try(number(
     get,
@@ -65,6 +75,7 @@ pub fn from_env(
   use _ <- result.try(validate_template(template))
   case
     port <= 65_535
+    && pms_port <= 65_535
     && initial <= maximum
     && list.unique([input, shopping, missing]) == [input, shopping, missing]
   {
@@ -83,12 +94,51 @@ pub fn from_env(
         shopping,
         missing,
         template,
+        pms_host,
+        pms_port,
+        bpd_url,
         timeout,
         connection_timeout,
         heartbeat,
         initial,
         maximum,
       ))
+  }
+}
+
+fn validate_pms_host(host: String) -> Result(Nil, String) {
+  let sample = "http://" <> host <> ":8081/memo"
+  use _ <- result.try(validate_url(sample, "PMS_HOST"))
+  use parsed <- result.try(
+    uri.parse(sample) |> result.map_error(fn(_) { "PMS_HOST is invalid" }),
+  )
+  case
+    parsed.path == "/memo" && parsed.query == None && parsed.port == Some(8081)
+  {
+    True -> Ok(Nil)
+    False -> Error("PMS_HOST must contain only a hostname or IP address")
+  }
+}
+
+pub fn validate_url(url: String, key: String) -> Result(Nil, String) {
+  let error = key <> " must be an HTTP(S) URL with no credentials or fragment"
+  use parsed <- result.try(uri.parse(url) |> result.map_error(fn(_) { error }))
+  use _ <- result.try(request.to(url) |> result.map_error(fn(_) { error }))
+  case parsed {
+    uri.Uri(
+      scheme: Some(scheme),
+      host: Some(host),
+      userinfo: None,
+      fragment: None,
+      ..,
+    )
+      if scheme == "http" || scheme == "https"
+    ->
+      case host != "" && !string.contains(url, " ") {
+        True -> Ok(Nil)
+        False -> Error(error)
+      }
+    _ -> Error(error)
   }
 }
 

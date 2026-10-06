@@ -11,6 +11,9 @@ return HTTP **200 with a JSON object**, or **404** when the product is unknown.
 
 ```sh
 export PRODUCT_LOOKUP_URL_TEMPLATE='http://localhost:8080/products/{barcode}'
+export PMS_HOST=localhost
+export PMS_PORT=8081
+export BPD_URL='http://localhost:8082/'
 nix run path:.
 ```
 
@@ -63,6 +66,14 @@ including unknown fields and formatting. No envelope or extra fields are added.
 The output content type is `application/json` for products and `text/plain` for
 missing barcodes. Every scan is processed independently, including repeats.
 
+For each unknown barcode (404), the service posts JSON to
+`http://PMS_HOST:PMS_PORT/memo` with subject `Unknown barcode` and content
+containing only the configured `BPD_URL`, verbatim. The barcode is not appended.
+Any 2xx response is accepted. Failed notifications retry with the configured
+HTTP timeout and backoff, blocking later scans until PMS succeeds. The missing
+barcode is then published and the scan acknowledged. Redelivery can produce
+duplicate notifications, as it can duplicate queue output.
+
 The missing queue is only an output. This version does not recheck missing
 barcodes; another component or a manual action can resubmit them to the input.
 
@@ -71,6 +82,9 @@ barcodes; another component or a manual action can resubmit them to the input.
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `PRODUCT_LOOKUP_URL_TEMPLATE` | **Required** | HTTP(S) GET URL with exactly one `{barcode}` placeholder |
+| `PMS_HOST` | `localhost` | PMS hostname or IP address |
+| `PMS_PORT` | `8081` | PMS HTTP port |
+| `BPD_URL` | **Required** | BPD HTTP(S) URL included verbatim in notifications |
 | `RABBITMQ_HOST` | `localhost` | Broker hostname |
 | `RABBITMQ_PORT` | `5672` | AMQP port |
 | `RABBITMQ_USERNAME` | `guest` | Broker username |

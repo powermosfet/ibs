@@ -84,6 +84,22 @@ with subtest("404 and repeated scans"):
         expect("shopping_list_items", body, "application/json")
     assert not get("missing_barcodes")
 
+    assert api("GET", "/memos", product=True) == [
+        {"subject": "Unknown barcode", "content": "http://localhost:8082/"}
+    ]
+
+with subtest("PMS failure retains scan and blocks following scan"):
+    control("pms", status=503)
+    control("missing-pms", status=404)
+    scanned("missing-pms")
+    scanned("behind-pms")
+    wait(lambda: len(api("GET", "/memos", product=True)) >= 3, "PMS was not retried")
+    assert not seen("behind-pms")
+    assert not get("missing_barcodes")
+    control("pms")
+    expect("missing_barcodes", "missing-pms", "text/plain")
+    expect("shopping_list_items", product_body("behind-pms"), "application/json")
+
 with subtest("URL encoding"):
     barcode = "00/A B?&+#é"
     scanned(barcode)

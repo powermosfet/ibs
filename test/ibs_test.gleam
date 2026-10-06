@@ -1,11 +1,14 @@
 import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/erlang/atom
+import gleam/json
 import gleam/list
 import gleam/result
 import gleeunit/should
 import ibs/amqp_returns
 import ibs/config
 import ibs/lookup
+import ibs/pms
 
 fn environment(
   values: List(#(String, String)),
@@ -20,13 +23,20 @@ const template = "http://localhost:8080/products/{barcode}"
 
 fn settings(values: List(#(String, String))) -> Result(config.Config, String) {
   config.from_env(
-    environment([#("PRODUCT_LOOKUP_URL_TEMPLATE", template), ..values]),
+    environment([
+      #("PRODUCT_LOOKUP_URL_TEMPLATE", template),
+      #("BPD_URL", "http://localhost:8082/"),
+      ..values
+    ]),
   )
 }
 
 pub fn default_configuration_test() {
   let config = settings([]) |> should.be_ok
   config.port |> should.equal(5672)
+  config.pms_host |> should.equal("localhost")
+  config.pms_port |> should.equal(8081)
+  config.bpd_url |> should.equal("http://localhost:8082/")
   config.input_queue |> should.equal("scanned_barcodes")
   config.retry_initial_ms |> should.equal(1000)
 }
@@ -38,24 +48,61 @@ pub fn environment_overrides_test() {
       #("RABBITMQ_PORT", "5673"),
       #("RABBITMQ_PASSWORD", ""),
       #("HTTP_TIMEOUT_MS", "250"),
+      #("PMS_HOST", "pms"),
+      #("PMS_PORT", "9000"),
     ])
     |> should.be_ok
   config.host |> should.equal("broker")
   config.port |> should.equal(5673)
   config.password |> should.equal("")
   config.http_timeout_ms |> should.equal(250)
+  config.pms_host |> should.equal("pms")
+  config.pms_port |> should.equal(9000)
 }
 
 pub fn required_url_test() {
   config.from_env(environment([])) |> should.be_error
+  config.from_env(environment([#("PRODUCT_LOOKUP_URL_TEMPLATE", template)]))
+  |> should.be_error
 }
 
 pub fn invalid_numbers_test() {
   list.each(["", "0", "-1", "garbage", "65536"], fn(value) {
     settings([#("RABBITMQ_PORT", value)]) |> should.be_error
+    settings([#("PMS_PORT", value)]) |> should.be_error
   })
   settings([#("HTTP_TIMEOUT_MS", "0")]) |> should.be_error
   settings([#("RETRY_INITIAL_DELAY_MS", "40000")]) |> should.be_error
+}
+
+pub fn notification_configuration_test() {
+  list.each(
+    ["", " ", "pms/path", "user:pass@pms", "pms?query", "pms:90"],
+    fn(host) { settings([#("PMS_HOST", host)]) |> should.be_error },
+  )
+  list.each(
+    [
+      "",
+      "ftp://example.org",
+      "http://user:pass@example.org",
+      "http://example.org/#fragment",
+    ],
+    fn(url) { config.validate_url(url, "BPD_URL") |> should.be_error },
+  )
+  config.validate_url("https://bpd.example.org/?view=unknown", "BPD_URL")
+  |> should.be_ok
+}
+
+pub fn notification_payload_test() {
+  let url = "https://bpd.example.org/?view=unknown&label=\"new\""
+  let decoder = {
+    use subject <- decode.field("subject", decode.string)
+    use content <- decode.field("content", decode.string)
+    decode.success(#(subject, content))
+  }
+  pms.memo(url)
+  |> json.parse(decoder)
+  |> should.equal(Ok(#("Unknown barcode", url)))
 }
 
 pub fn queue_configuration_test() {

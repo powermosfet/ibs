@@ -24,6 +24,9 @@ pkgs.testers.runNixOSTest {
       ];
       environment = {
         PRODUCT_LOOKUP_URL_TEMPLATE = "http://localhost:8080/products/{barcode}";
+        PMS_HOST = "localhost";
+        PMS_PORT = "8080";
+        BPD_URL = "http://localhost:8082/";
         HTTP_TIMEOUT_MS = "200";
         RETRY_INITIAL_DELAY_MS = "100";
         RETRY_MAX_DELAY_MS = "400";
