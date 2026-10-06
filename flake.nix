@@ -43,6 +43,13 @@
         };
     in
     {
+      nixosModules = {
+        default = self.nixosModules.ibs;
+        ibs = { pkgs, lib, ... }: {
+          imports = [ ./nix/module.nix ];
+          services.ibs.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        };
+      };
       packages = eachSystem (system: {
         default = packageFor system;
         iterative-barcode-searcher = packageFor system;
@@ -80,6 +87,7 @@
           integration = import ./nix/integration.nix {
             inherit pkgs;
             package = packageFor system;
+            module = self.nixosModules.default;
           };
         }
       );

@@ -43,6 +43,42 @@ The service reads environment variables directly; it does not load `.env` files
 automatically. Stop it with Ctrl-C or SIGTERM. The connection closes when the
 Erlang VM exits, allowing unfinished scans to be redelivered.
 
+## NixOS module
+
+Import the flake's `nixosModules.default` (also available as `nixosModules.ibs`)
+and enable `services.ibs`:
+
+```nix
+{ inputs, ... }: {
+  imports = [ inputs.ibs.nixosModules.default ];
+
+  services.ibs = {
+    enable = true;
+    settings = {
+      PRODUCT_LOOKUP_URL_TEMPLATE = "http://localhost:8080/products/{barcode}";
+      PMS_HOST = "localhost";
+      PMS_PORT = 8081;
+      BPD_URL = "http://localhost:8082/";
+      RABBITMQ_HOST = "localhost";
+    };
+    # Optional runtime file for credentials, e.g. RABBITMQ_PASSWORD=...
+    environmentFile = "/run/secrets/ibs.env";
+  };
+}
+```
+
+Add this flake as the `ibs` input and pass `inputs` through your NixOS
+configuration's `specialArgs`. The module selects the flake package for the
+host platform; `services.ibs.package` can override it. `settings` accepts the
+environment variables below as strings or integers, using application defaults
+for omitted values. Supply both required URLs in settings or the environment
+file. The optional file uses systemd EnvironmentFile syntax, overrides settings,
+and must exist at startup; keep secrets there rather than in the Nix store.
+
+The `ibs.service` unit starts at boot, runs as a dynamic user, and restarts on
+failure. Inspect logs with `journalctl -u ibs`. RabbitMQ and the HTTP services
+must be configured separately; a local RabbitMQ service is ordered before IBS.
+
 ## Message flow
 
 ```text
